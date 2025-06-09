@@ -36,16 +36,21 @@ public class HobbyAiBackendApplication implements CommandLineRunner {
 	public void run(String... args) {
 		System.out.println("Application starting...");
 		
-		if (Boolean.TRUE.equals(initializeProfiles)) {
-			System.out.println("Initializing profiles (startup-actions.initializeProfiles=true)");
-			clearAllData();
-			profileCreationService.createProfiles(5); // Reduced to 5 profiles to avoid long startup times
-		} else {
-			System.out.println("Skipping profile initialization (startup-actions.initializeProfiles=false)");
+		try {
+			if (Boolean.TRUE.equals(initializeProfiles)) {
+				System.out.println("Initializing profiles (startup-actions.initializeProfiles=true)");
+				clearAllData();
+				profileCreationService.createProfiles(10);
+			} else {
+				System.out.println("Skipping profile initialization (startup-actions.initializeProfiles=false)");
+			}
+			
+			profileCreationService.saveProfilesToDB();
+			System.out.println("Application startup completed successfully");
+		} catch (Exception e) {
+			System.err.println("Error during application startup: " + e.getMessage());
+			e.printStackTrace();
 		}
-		
-		profileCreationService.saveProfilesToDB();
-		System.out.println("Application startup completed");
 	}
 
 	private void clearAllData() {

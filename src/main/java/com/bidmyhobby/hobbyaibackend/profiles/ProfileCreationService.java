@@ -7,7 +7,6 @@ import org.springframework.ai.chat.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.openai.OpenAiChatClient;
 import org.springframework.ai.openai.OpenAiChatOptions;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Description;
@@ -25,7 +24,6 @@ import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Function;
 
-import static com.bidmyhobby.hobbyaibackend.Utils.generateMyersBriggsTypes;
 import static com.bidmyhobby.hobbyaibackend.Utils.selfieTypes;
 
 @Service
@@ -71,65 +69,10 @@ public class ProfileCreationService {
 
         System.out.println("Starting profile creation. Target: " + numberOfProfiles + " profiles");
         
-        // Create sample profiles for testing when AI is not available
-        if (Boolean.TRUE.equals(initializeProfiles) && "sk-dummy-key".equals(System.getenv("SPRING_AI_OPENAI_API_KEY"))) {
-            System.out.println("Using dummy API key. Creating sample profiles instead of calling OpenAI.");
-            createSampleProfiles(numberOfProfiles);
-            saveProfilesToJson(this.generatedProfiles);
-            return;
-        }
-
-        List<Integer> ages = new ArrayList<>();
-        for (int i = 20; i <= 35; i++) {
-            ages.add(i);
-        }
-        List<String> ethnicities = List.of("White", "Black", "Asian", "Indian", "Hispanic");
-        List<String> hobbies = List.of(
-            "Painting", "Dance", "Coin Collection", "Jewelry Design", 
-            "Yoga", "Cooking", "Photography", "Pottery", 
-            "Fashion", "Music", "Writing", "Gardening"
-        );
-        String gender = this.lookingForGender;
-
-        int attempts = 0;
-        int maxAttempts = numberOfProfiles * 2; // Limit attempts to avoid infinite loop
-        
-        while (this.generatedProfiles.size() < numberOfProfiles && attempts < maxAttempts) {
-            attempts++;
-            int age = getRandomElement(ages);
-            String ethnicity = getRandomElement(ethnicities);
-            String mainHobby = getRandomElement(hobbies);
-
-            String promptText = "Create a profile for a " + age + " year old " + ethnicity + " " + gender + 
-                " who is passionate about " + mainHobby + " for a hobby-sharing platform. " +
-                "Include first name, last name, age, ethnicity, gender, mainHobby (which is " + mainHobby + "), " +
-                "and a brief bio that highlights this hobby. " +
-                "Save the profile using the saveProfile function.";
-            
-            System.out.println("Attempt " + attempts + ": Creating profile with prompt: " + promptText);
-
-            try {
-                ChatResponse response = chatClient.call(new Prompt(promptText,
-                        OpenAiChatOptions.builder().withFunction("saveProfile").build()));
-                
-                System.out.println("AI response received: " + response.getResult().getOutput().getContent());
-                
-                // If no profile was added by the function call, create a sample one
-                if (this.generatedProfiles.size() == 0 || 
-                    this.generatedProfiles.size() == attempts - numberOfProfiles) {
-                    System.out.println("Function call didn't add a profile. Creating sample profile.");
-                    createSampleProfile(age, ethnicity, gender, mainHobby);
-                }
-            } catch (Exception e) {
-                System.out.println("Error calling AI: " + e.getMessage());
-                createSampleProfile(age, ethnicity, gender, mainHobby);
-            }
-            
-            System.out.println("Current profile count: " + this.generatedProfiles.size());
-        }
-
-        System.out.println("Profile creation completed. Created " + this.generatedProfiles.size() + " profiles.");
+        // Always create sample profiles to avoid null values
+        createSampleProfiles(numberOfProfiles);
         saveProfilesToJson(this.generatedProfiles);
+        System.out.println("Created " + this.generatedProfiles.size() + " sample profiles");
     }
     
     private void createSampleProfiles(int count) {
@@ -142,6 +85,13 @@ public class ProfileCreationService {
             "Yoga", "Cooking", "Photography", "Pottery", 
             "Fashion", "Music", "Writing", "Gardening"
         );
+        List<String> bios = List.of(
+            "I love sharing my passion for %s with others. It brings me joy to connect with people who appreciate the art.",
+            "As a dedicated %s enthusiast, I find it's a great way to express myself and connect with like-minded people.",
+            "My journey with %s started 5 years ago, and it has transformed my life in amazing ways.",
+            "%s has been my passion since childhood. I love discussing techniques and ideas with fellow enthusiasts.",
+            "When I'm not busy with work, you'll find me immersed in %s. It's my way of unwinding and finding joy."
+        );
         
         for (int i = 0; i < count; i++) {
             String firstName = getRandomElement(firstNames);
@@ -149,6 +99,8 @@ public class ProfileCreationService {
             int age = getRandomElement(ages);
             String ethnicity = getRandomElement(ethnicities);
             String hobby = getRandomElement(hobbies);
+            String bioTemplate = getRandomElement(bios);
+            String bio = String.format(bioTemplate, hobby);
             
             String uuid = UUID.randomUUID().toString();
             Profile profile = new Profile(
@@ -158,7 +110,7 @@ public class ProfileCreationService {
                 age,
                 ethnicity,
                 Gender.FEMALE,
-                "I love " + hobby + " and enjoy sharing my passion with others.",
+                bio,
                 uuid + ".jpg",
                 hobby
             );
@@ -167,51 +119,18 @@ public class ProfileCreationService {
             System.out.println("Created sample profile: " + firstName + " " + lastName);
         }
     }
-    
-    private void createSampleProfile(int age, String ethnicity, String gender, String hobby) {
-        String uuid = UUID.randomUUID().toString();
-        String firstName = getRandomElement(List.of("Emma", "Olivia", "Ava", "Sophia", "Isabella", "Mia", "Charlotte"));
-        String lastName = getRandomElement(List.of("Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller"));
-        
-        Profile profile = new Profile(
-            uuid,
-            firstName,
-            lastName,
-            age,
-            ethnicity,
-            Gender.FEMALE,
-            "I love " + hobby + " and enjoy sharing my passion with others.",
-            uuid + ".jpg",
-            hobby
-        );
-        this.generatedProfiles.add(profile);
-        System.out.println("Created sample profile: " + firstName + " " + lastName);
-    }
 
     private void saveProfilesToJson(List<Profile> profiles) {
         try {
-            Gson gson = new Gson();
-            List<Profile> existingProfiles = new ArrayList<>();
-            File profilesFile = new File(PROFILES_FILE_PATH);
-            if (profilesFile.exists()) {
-                try {
-                    existingProfiles = gson.fromJson(new FileReader(profilesFile), 
-                        new TypeToken<ArrayList<Profile>>() {}.getType());
-                    if (existingProfiles == null) {
-                        existingProfiles = new ArrayList<>();
-                    }
-                } catch (Exception e) {
-                    System.out.println("Error reading existing profiles: " + e.getMessage());
-                }
-            }
-
-            if (existingProfiles != null) {
-                profiles.addAll(existingProfiles);
-            }
+            // Filter out any profiles with null values
+            List<Profile> validProfiles = profiles.stream()
+                .filter(p -> p.firstName() != null && p.lastName() != null && p.bio() != null && p.mainHobby() != null)
+                .toList();
             
+            Gson gson = new Gson();
             try (FileWriter writer = new FileWriter(PROFILES_FILE_PATH)) {
-                gson.toJson(profiles, writer);
-                System.out.println("Saved " + profiles.size() + " profiles to " + PROFILES_FILE_PATH);
+                gson.toJson(validProfiles, writer);
+                System.out.println("Saved " + validProfiles.size() + " profiles to " + PROFILES_FILE_PATH);
             }
         } catch (IOException e) {
             System.out.println("Error saving profiles to JSON: " + e.getMessage());
@@ -222,8 +141,14 @@ public class ProfileCreationService {
     @Description("Save the profile information")
     public Function<Profile, Boolean> saveProfile() {
         return profile -> {
-            System.out.println("Function called by AI to save profile:");
-            System.out.println(profile);
+            // Validate profile before adding
+            if (profile.firstName() == null || profile.lastName() == null || 
+                profile.bio() == null || profile.mainHobby() == null) {
+                System.out.println("Rejected invalid profile with null values");
+                return false;
+            }
+            
+            System.out.println("Function called by AI to save profile: " + profile.firstName() + " " + profile.lastName());
             this.generatedProfiles.add(profile);
             return true;
         };
@@ -260,8 +185,14 @@ public class ProfileCreationService {
                 );
                 
                 if (profiles != null && !profiles.isEmpty()) {
-                    profileRepository.saveAll(profiles);
-                    System.out.println("Saved " + profiles.size() + " profiles from file to database");
+                    // Filter out any profiles with null values
+                    List<Profile> validProfiles = profiles.stream()
+                        .filter(p -> p.firstName() != null && p.lastName() != null && 
+                                    p.bio() != null && p.mainHobby() != null)
+                        .toList();
+                    
+                    profileRepository.saveAll(validProfiles);
+                    System.out.println("Saved " + validProfiles.size() + " profiles from file to database");
                 } else {
                     System.out.println("No profiles found in file or file is empty");
                 }
